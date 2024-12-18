@@ -4,6 +4,10 @@ using Azure.Security.KeyVault.Keys;
 using Microsoft.Extensions.Logging;
 using DQT.Utilities;
 using Azure;
+using DQT.Security.Cryptography.Services;
+using DQT.Security.Cryptography.Models;
+using System.Text;
+
 namespace DQT.Azure.KeyVault.Services
 {
     /// <summary>
@@ -16,7 +20,15 @@ namespace DQT.Azure.KeyVault.Services
         private readonly ILogger<KeyVaultService> _logger; 
         private readonly string _clientSecret;
         private readonly string _tenantId;
+        private readonly bool _encrypt = true;
+        private byte[] _encryptionKey;
+        private byte[] _encryptionIV;
+        private readonly IAesEncryption encryptServuce = new AesEncryption();
+        public string KeySecretName { get; set; } = "DQTContent";
+        public string IVSecretName { get; set; } = "DQTValue";
         private SecretClient _secretClient { get; set; }
+
+        
         private KeyClient _keyClient { get; set; }
         
         private bool _disposed = false;
@@ -33,17 +45,51 @@ namespace DQT.Azure.KeyVault.Services
             string keyVaultUri,
             string clientId,
             string clientSecret,
-            ILogger<KeyVaultService> logger)
+            ILogger<KeyVaultService> logger,
+            bool encrypt = true)
         {
-
-            ValidateInputParameters(keyVaultUri, clientId, clientSecret);
-            AuthenticateAsync();
             _keyVaultUri = new Uri(keyVaultUri);
             _clientId = clientId;
-            _clientSecret = clientSecret;   
+            _clientSecret = clientSecret;
             _tenantId = tenantId;
             _logger = logger;
+            _encrypt = encrypt;
+            ValidateInputParameters(keyVaultUri, clientId, clientSecret);
+            Authenticate();
             
+            
+        }
+        /// <summary>
+        /// Initializes a new instance of the AzureKeyVaultService
+        /// </summary>
+        /// <param name="keyVaultUri">The URI of the Azure Key Vault</param>
+        /// <param name="clientId">The Azure AD application (client) ID</param>
+        /// <param name="clientSecret">The Azure AD application client secret</param>
+        /// <param name="encryptionKey">The Encryption Key</param>
+        /// /// <param name="encryptionIV">The Encryption IV</param>
+        /// <param name="logger">Optional logger for tracking operations</param>
+        public KeyVaultService(
+            string tenantId,
+            string keyVaultUri,
+            string clientId,
+            string clientSecret,
+            string encryptionKey,
+            string encryptionIV,
+            ILogger<KeyVaultService> logger)
+        {
+            _keyVaultUri = new Uri(keyVaultUri);
+            _clientId = clientId;
+            _clientSecret = clientSecret;
+            _tenantId = tenantId;
+            _logger = logger;
+            _encrypt = false;
+            _encrypt = true;
+            _encryptionKey = Convert.FromBase64String(encryptionKey);
+            _encryptionIV = Convert.FromBase64String(encryptionIV);
+            ValidateInputParameters(keyVaultUri, clientId, clientSecret);
+            Authenticate();
+
+
         }
 
         /// <summary>
@@ -81,11 +127,64 @@ namespace DQT.Azure.KeyVault.Services
                 throw new AuthenticationException("Unable to create Azure credentials", ex);
             }
         }
+        private async Task GetEncryptedKeyIV()
+        {
+            
+            if (_encryptionKey == null)
+            {
+
+                try
+                {
+                    KeyVaultSecret secretEncryptionKey = await _secretClient.GetSecretAsync(KeySecretName);
+                    _encryptionKey = Convert.FromBase64String(secretEncryptionKey.Value);
+                }
+                catch
+                {
+                    _encryptionKey = encryptServuce.GenerateKey();
+                    await _secretClient.SetSecretAsync(KeySecretName, Convert.ToBase64String(_encryptionKey));
+                }
+
+            }
+            if (_encryptionIV == null)
+            {
+                try
+                {
+                    KeyVaultSecret secretEncryptionIV = await _secretClient.GetSecretAsync(IVSecretName);
+                    _encryptionIV = Convert.FromBase64String(secretEncryptionIV.Value);
+
+                }
+                catch
+                {
+                    _encryptionIV = encryptServuce.GenerateIV();
+                    await _secretClient.SetSecretAsync(IVSecretName, Convert.ToBase64String(_encryptionIV));
+                }
+            }
+
+        }
+        private async Task<string> GetEncryptedDataAsync(string value)
+        {
+            string returnValue = value;
+            if (_encrypt == true)
+            {
+                await GetEncryptedKeyIV();
+                if (_encryptionKey == null)
+                {
+                    throw new InvalidOperationException("Unable to get Key");
+                }
+                if (_encryptionKey == null)
+                {
+                    throw new InvalidOperationException("Unable to get IV");
+                }
+                var model = encryptServuce.Encrypt(value,_encryptionKey, _encryptionIV);
+                returnValue = model.EncryptedData;
+            }
+            return returnValue;
+        }
         /// <summary>
         /// Authenticates to Azure Key Vault
         /// </summary>
         /// <returns>A boolean indicating successful authentication</returns>
-        public void AuthenticateAsync()
+        public void Authenticate()
         {
             try
             {
@@ -133,10 +232,8 @@ namespace DQT.Azure.KeyVault.Services
                 {
                     throw new InvalidOperationException("Authentication failed");
                 }
+                secretValue = await GetEncryptedDataAsync(secretValue);
 
-                
-
-                // Create or update the secret
                 await _secretClient.SetSecretAsync(secretName, secretValue);
 
                 _logger.LogInformation($"Successfully created/updated secret: {secretName}");
@@ -159,7 +256,17 @@ namespace DQT.Azure.KeyVault.Services
             {
                 KeyVaultSecret secret = await _secretClient.GetSecretAsync(secretName);
                 _logger?.LogInformation($"Successfully retrieved secret: {secretName}");
-                return secret.Value;
+                string value = secret.Value;
+                if (_encrypt)
+                {
+                    await GetEncryptedKeyIV();
+                    value = encryptServuce.Decrypt(value, _encryptionKey, _encryptionIV);
+                }
+                
+
+                
+
+                return value;
             }
             catch (Exception ex)
             {

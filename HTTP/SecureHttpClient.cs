@@ -1,24 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net.Http.Headers;
-using System.Net.NetworkInformation;
-using System.Net;
-using System.Text;
+﻿using System.Net.Http.Headers;
 using System.Text.Json;
-using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using System.Net;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Text;
 
 namespace DQT.HTTP
 {
-using System;
-using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Text.Json;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using System.Net;
 
-public class SecureHttpClient:ISecureHttpClient
+    public class SecureHttpClient:ISecureHttpClient
     {
         private readonly HttpClient _httpClient;
         private readonly ILogger<SecureHttpClient> _logger;
@@ -63,6 +54,20 @@ public class SecureHttpClient:ISecureHttpClient
                 new MediaTypeWithQualityHeaderValue("application/json")
             );
         }
+        public string GetToken(string issuer,string audience, int expirationInMinutes, string secretKey)
+        {
+
+            var tokenHandler = new JwtSecurityTokenHandler();
+            var decryptedTokenKey = Encoding.UTF8.GetBytes(secretKey);
+            var token = tokenHandler.CreateToken(new SecurityTokenDescriptor
+            {
+                Issuer = issuer,
+                Audience = audience,
+                Expires = DateTime.UtcNow.AddMinutes(expirationInMinutes),
+                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(decryptedTokenKey), SecurityAlgorithms.HmacSha256Signature)
+            });
+            return tokenHandler.WriteToken(token); 
+        }
         public void AddHeaders(string key, string value)
         {
             if (Headers == null ) Headers = new Dictionary<string,string>();
@@ -87,7 +92,7 @@ public class SecureHttpClient:ISecureHttpClient
         /// <returns>Deserialized response object</returns>
         public async Task<T> GetAsync<T>(string url, string bearerToken = null)
         {
-            // Input validation
+            IsSuccessfull = false;
             if (string.IsNullOrWhiteSpace(url))
                 throw new ArgumentException("URL cannot be null or empty", nameof(url));
 
@@ -108,11 +113,19 @@ public class SecureHttpClient:ISecureHttpClient
                 StatusCode = response.StatusCode;
                 IsSuccessfull = response.IsSuccessStatusCode;
                 var responseBody = await response.Content.ReadAsStringAsync();
-                return JsonSerializer.Deserialize<T>(responseBody, new JsonSerializerOptions
+                if (!string.IsNullOrEmpty(responseBody))
                 {
-                    PropertyNameCaseInsensitive = true
-                });
+                    if (!responseBody.Contains("<"))
+                    {
+                        return JsonSerializer.Deserialize<T>(responseBody, new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        });
+
+                    }
+                }
                 
+                _logger.LogInformation("StatusCode: " + StatusCode);
             }
             catch (HttpRequestException ex)
             {
@@ -155,7 +168,7 @@ public class SecureHttpClient:ISecureHttpClient
             TRequest requestBody,
             string bearerToken = null)
         {
-            // Input validation
+            IsSuccessfull = false;
             if (string.IsNullOrWhiteSpace(url))
                 throw new ArgumentException("URL cannot be null or empty", nameof(url));
 
@@ -185,10 +198,14 @@ public class SecureHttpClient:ISecureHttpClient
                 var responseBody = await response.Content.ReadAsStringAsync();
                 _logger.LogWarning("BODY: " + responseBody);
                 if (!string.IsNullOrEmpty(responseBody)) {
-                    return JsonSerializer.Deserialize<TResponse>(responseBody, new JsonSerializerOptions
+                    if (!responseBody.Contains("<"))
                     {
-                        PropertyNameCaseInsensitive = true
-                    });
+                        return JsonSerializer.Deserialize<TResponse>(responseBody, new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        });
+
+                    }
                 }
 
 

@@ -18,7 +18,7 @@ namespace DQT.Azure.KeyVault.Services
         /// Authenticates to Azure Key Vault
         /// </summary>
         /// <returns>A boolean indicating successful authentication</returns>
-        void AuthenticateAsync();
+        void Authenticate();
 
         /// <summary>
         /// Retrieves a secret from Azure Key Vault

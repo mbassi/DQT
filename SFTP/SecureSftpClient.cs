@@ -12,7 +12,7 @@ namespace DQT.SFTP
     /// <summary>
     /// Secure SFTP Client with robust error handling and security best practices
     /// </summary>
-    public class SecureSftpClient : IDisposable
+    public class SecureSftpClient : ISecureSftpClient, IDisposable
     {
         private readonly SftpClient _sftpClient;
         private bool _disposed = false;
@@ -191,6 +191,7 @@ namespace DQT.SFTP
 
             try
             {
+                
                 foreach (var file in _sftpClient.ListDirectory(remotePath))
                 {
                     if (file.IsRegularFile)
