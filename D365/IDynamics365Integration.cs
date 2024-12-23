@@ -1,4 +1,5 @@
-﻿using Microsoft.Xrm.Sdk;
+﻿using DQT.Enum;
+using Microsoft.Xrm.Sdk;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -54,6 +55,10 @@ namespace DQT.D365
         /// <param name="query">The query to filter records</param>
         /// <returns>A collection of entities matching the query</returns>
         Task<EntityCollection> RetrieveMultipleAsync(string query);
+        Entity PrepareEntity<TParameter>(string entityLogicalName, Guid id, TParameter obj,
+                Dictionary<string, string> mapping, D365Action action );
+        Task AddToQueue<TParameter>(string entityLogicalName, Guid id, TParameter obj, Dictionary<string,string> mapping,D365Action action);
+        Task<BulkOperationResult> CommitChangesAsync(IProgress<int> progress);
     }
 
 }

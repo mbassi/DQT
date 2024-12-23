@@ -138,6 +138,8 @@ namespace DQT.SFTP
         {
             try
             {
+                
+                
                 _sftpClient.Connect();
 
             }
