@@ -145,6 +145,7 @@ namespace DQT.Azure.BlobStorage.Services
                         // Validate extracted file names
 
                         var blobName = rootFolder + "\\" + entry.FullName;
+                        if (blobName.EndsWith("/") || blobName.EndsWith("\\")) continue;
                         using (var entryStream = entry.Open())
                         using (var memoryStream = new MemoryStream())
                         {
