@@ -58,7 +58,7 @@ namespace DQT.D365
         Entity PrepareEntity<TParameter>(string entityLogicalName, Guid id, TParameter obj,
                 Dictionary<string, string> mapping, D365Action action );
         Task AddToQueue<TParameter>(string entityLogicalName, Guid id, TParameter obj, Dictionary<string,string> mapping,D365Action action);
-        Task<BulkOperationResult> CommitChangesAsync(IProgress<int> progress);
+        Task<BulkOperationResult> CommitChangesAsync(IProgress<int> progress = null);
     }
 
 }

@@ -214,6 +214,7 @@ namespace DQT.D365
         public async Task<BulkOperationResult> CommitChangesAsync(IProgress<int> progress = null)
         {
             ThrowIfDisposed();
+            var startTime = DateTime.Now;
             _logger.LogInformation("Starting bulk operation with {Count} pending requests", _pendingRequests.Count);
 
             await _semaphore.WaitAsync();
@@ -235,8 +236,6 @@ namespace DQT.D365
                     var batch = await CreateNextBatchAsync();
                     if (!batch.Any()) break;
 
-                    _logger.LogInformation("Processing batch of {Count} requests", batch.Count);
-
                     try
                     {
                         var batchResponse = await ExecuteBatchAsync(batch);
@@ -245,11 +244,37 @@ namespace DQT.D365
                         processedRequests += batch.Count;
                         result.SuccessCount += batch.Count - failures.Count;
 
+                        // Calculate progress and estimated time
                         var progressPercentage = (int)((float)processedRequests / totalRequests * 100);
-                        progress?.Report(progressPercentage);
+                        var currentBatchTime = DateTime.Now;
 
-                        _logger.LogInformation("Batch processed. Progress: {Progress}%. Success: {SuccessCount}, Failures: {FailureCount}",
-                            progressPercentage, batch.Count - failures.Count, failures.Count);
+                        // Only calculate ETA if we have processed some requests
+                        if (processedRequests > 0)
+                        {
+                            var estimatedTimeRemaining = TimeSpan.FromTicks((long)((currentBatchTime - startTime).Ticks * ((float)(totalRequests - processedRequests) / processedRequests)));
+
+                            _logger.LogInformation(
+                                "Progress: {Progress}% | Processed: {Processed}/{Total} | ETA: {TimeRemaining:hh\\:mm\\:ss} | Success: {SuccessCount} | Failures: {FailureCount}",
+                                progressPercentage,
+                                processedRequests,
+                                totalRequests,
+                                estimatedTimeRemaining,
+                                result.SuccessCount,
+                                failures.Count);
+                        }
+                        else
+                        {
+                            _logger.LogInformation(
+                                "Progress: {Progress}% | Processed: {Processed}/{Total} | Success: {SuccessCount} | Failures: {FailureCount}",
+                                progressPercentage,
+                                processedRequests,
+                                totalRequests,
+                                result.SuccessCount,
+                                failures.Count);
+                        }
+
+                        // Report progress to IProgress if provided
+                        progress?.Report(progressPercentage);
                     }
                     catch (Exception ex)
                     {
@@ -265,8 +290,12 @@ namespace DQT.D365
                 result.FailureCount = failures.Count;
                 result.Success = failures.Count == 0;
 
-                _logger.LogInformation("Bulk operation completed. Total Success: {SuccessCount}, Total Failures: {FailureCount}",
-                    result.SuccessCount, result.FailureCount);
+                var totalTime = DateTime.Now - startTime;
+                _logger.LogInformation(
+                    "Bulk operation completed in {TotalTime:hh\\:mm\\:ss} | Total Success: {SuccessCount} | Total Failures: {FailureCount}",
+                    totalTime,
+                    result.SuccessCount,
+                    result.FailureCount);
 
                 return result;
             }
