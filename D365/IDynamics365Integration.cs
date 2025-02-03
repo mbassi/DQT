@@ -1,10 +1,5 @@
-﻿using DQT.Enum;
+﻿using DQT.Enums;
 using Microsoft.Xrm.Sdk;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace DQT.D365
 {
@@ -58,7 +53,7 @@ namespace DQT.D365
         Entity PrepareEntity<TParameter>(string entityLogicalName, Guid id, TParameter obj,
                 Dictionary<string, string> mapping, D365Action action );
         Task AddToQueue<TParameter>(string entityLogicalName, Guid id, TParameter obj, Dictionary<string,string> mapping,D365Action action);
-        Task<BulkOperationResult> CommitChangesAsync(IProgress<int> progress = null);
+        Task<BulkOperationResult> CommitChangesAsync();
     }
 
 }

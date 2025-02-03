@@ -2,7 +2,7 @@
 using Azure.Security.KeyVault.Secrets;
 using Azure.Security.KeyVault.Keys;
 using Microsoft.Extensions.Logging;
-using DQT.Utilities;
+using DQT.Enums;
 using Azure;
 using DQT.Security.Cryptography.Services;
 using DQT.Security.Cryptography.Models;
@@ -129,7 +129,7 @@ namespace DQT.Azure.KeyVault.Services
         }
         private async Task GetEncryptedKeyIV()
         {
-            
+
             if (_encryptionKey == null)
             {
 
@@ -138,12 +138,15 @@ namespace DQT.Azure.KeyVault.Services
                     KeyVaultSecret secretEncryptionKey = await _secretClient.GetSecretAsync(KeySecretName);
                     _encryptionKey = Convert.FromBase64String(secretEncryptionKey.Value);
                 }
-                catch
+                catch (Exception ex)
                 {
+
+                    _logger.LogError(ex, ex.Message);
                     _encryptionKey = encryptServuce.GenerateKey();
                     await _secretClient.SetSecretAsync(KeySecretName, Convert.ToBase64String(_encryptionKey));
-                }
 
+
+                }
             }
             if (_encryptionIV == null)
             {
@@ -252,25 +255,63 @@ namespace DQT.Azure.KeyVault.Services
         /// <returns>The secret value</returns>
         public async Task<string> GetSecretAsync(string secretName)
         {
+            if (_logger == null)
+            {
+                Console.WriteLine("Warning: Logger is null in KeyVaultService");
+            }
+
+            _logger?.LogDebug("Starting GetSecretAsync for secret: {SecretName}", secretName);
+
             try
             {
+                if (_secretClient == null)
+                {
+                    _logger?.LogError("SecretClient is null. Authentication may have failed.");
+                    throw new InvalidOperationException("SecretClient is not initialized. Please ensure Authenticate() was called successfully.");
+                }
+
+                _logger?.LogDebug("About to call GetSecretAsync on _secretClient");
+                Console.WriteLine($"Attempting to retrieve secret: {secretName}"); // Direct console output for debugging
+
                 KeyVaultSecret secret = await _secretClient.GetSecretAsync(secretName);
-                _logger?.LogInformation($"Successfully retrieved secret: {secretName}");
+
+                if (secret == null)
+                {
+                    _logger?.LogError("Retrieved secret is null");
+                    Console.WriteLine("Retrieved secret is null"); // Direct console output for debugging
+                    throw new KeyNotFoundException($"Secret '{secretName}' not found in Key Vault");
+                }
+
+                Console.WriteLine($"Successfully retrieved secret: {secretName}"); // Direct console output for debugging
+                _logger?.LogInformation("Successfully retrieved secret: {SecretName}", secretName);
+
                 string value = secret.Value;
+
                 if (_encrypt)
                 {
+                    _logger?.LogDebug("Starting decryption process");
                     await GetEncryptedKeyIV();
+                    if (_encryptionKey == null || _encryptionIV == null)
+                    {
+                        _logger?.LogError("Encryption keys are not properly initialized");
+                        throw new InvalidOperationException("Encryption keys are not properly initialized");
+                    }
                     value = encryptServuce.Decrypt(value, _encryptionKey, _encryptionIV);
+                    _logger?.LogDebug("Decryption completed successfully");
                 }
-                
-
-                
 
                 return value;
             }
+            catch (RequestFailedException ex)
+            {
+                Console.WriteLine($"Azure Key Vault error: {ex.Message}"); // Direct console output for debugging
+                _logger?.LogError(ex, "Azure Key Vault error retrieving secret '{SecretName}'. Status: {Status}", secretName, ex.Status);
+                throw;
+            }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, $"Error retrieving secret: {secretName}");
+                Console.WriteLine($"General error: {ex.Message}"); // Direct console output for debugging
+                _logger?.LogError(ex, "Error retrieving secret: {SecretName}", secretName);
                 throw;
             }
         }

@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace DQT.Enum
+namespace DQT.Enums
 {
     public enum D365Action
     {

@@ -1,14 +1,7 @@
-﻿using Microsoft.SharePoint.Client;
-using System;
-using System.IO;
-using System.Threading.Tasks;
-using System.Net.Http;
+﻿using System.Net;
 using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
-using Microsoft.Xrm.Sdk;
 using Microsoft.Extensions.Logging;
-using System.Net;
 
 namespace DQT.Office365.SharePoint.Services
 {
@@ -16,25 +9,27 @@ namespace DQT.Office365.SharePoint.Services
     {
         private readonly ILogger<SharePointService> _logger;
         private readonly HttpClient _httpClient;
-        private ClientContext _context;
-        private bool _disposed;
-        private string _accessToken;
-        private string _graphAccessToken;
-        private string _siteUrl;
-        private string _libraryName;
-        private string _clientId;
-        private string _clientSecret;
-        private string _tenantId;
-        private string _username;
-        private string _password;
-        private string _siteId;
-        private string _libraryId;
+        //private ClientContext _context;
+        private bool _disposed = false;
+        private string _accessToken = string.Empty;
+        private string _graphAccessToken = string.Empty;
+        private string _siteUrl = string.Empty;
+        private string _libraryName = string.Empty;
+        private string _clientId = string.Empty;
+        private string _clientSecret = string.Empty;
+        private string _tenantId = string.Empty;
+        private string _username = string.Empty;
+        private string _password = string.Empty;
+        private string _siteId = string.Empty;
+        private string _libraryId = string.Empty;
+        
 
-        public SharePointService(ILogger<SharePointService> logger)
+        public SharePointService(ILogger<SharePointService> logger )
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _httpClient = new HttpClient();
         }
+        
 
         public async Task ConnectAsync(string siteUrl, string libraryName, string username, string password, string clientId, string clientSecret, string tenantId)
         {
@@ -55,16 +50,16 @@ namespace DQT.Office365.SharePoint.Services
                 // Get tokens
                 var uri = new Uri(siteUrl);
                 string resource = $"{uri.Scheme}://{uri.Host}";
-                _accessToken = await GetAccessTokenAsync(resource);
+                //_accessToken = await GetAccessTokenAsync(resource);
                 _graphAccessToken = await GetGraphTokenAsync();
 
                 // Initialize context
-                _context = new ClientContext(siteUrl);
+                /*_context = new ClientContext(siteUrl);
                 _context.ExecutingWebRequest += (sender, e) =>
                 {
                     e.WebRequestExecutor.RequestHeaders["Authorization"] = "Bearer " + _accessToken;
                 };
-
+                */
                 // Initialize IDs only if needed
                 if (string.IsNullOrEmpty(_siteId))
                 {
@@ -196,7 +191,7 @@ namespace DQT.Office365.SharePoint.Services
         {
             try
             {
-                await EnsureValidConnectionAsync();
+                await EnsureValidConnectionAsync(HttpStatusCode.OK);
 
                 using var httpClient = new HttpClient();
                 httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _graphAccessToken);
@@ -234,35 +229,70 @@ namespace DQT.Office365.SharePoint.Services
             }
         }
 
-        public async Task UploadFileAsync(byte[] fileContent, string fileName, string folderPath = "")
+        public async Task UploadFileAsync(byte[] fileContent, string fileName, string folderPath = "", int maxRetries = 5)
         {
             try
             {
-                await EnsureValidConnectionAsync();
-
-                using var httpClient = new HttpClient();
-                httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _graphAccessToken);
-
-                var filePath = !string.IsNullOrEmpty(folderPath)
-                    ? $"{folderPath}/{fileName}".TrimStart('/')
-                    : fileName;
-
-                var uploadUrl = $"https://graph.microsoft.com/v1.0/sites/{_siteId}/lists/{_libraryId}/drive/root:/{filePath}:/content";
-
-                using (var content = new ByteArrayContent(fileContent))
+                bool success = false;
+                int numberOfRetries = 0;
+                while (!success && numberOfRetries<maxRetries)
                 {
-                    content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-                    var uploadResponse = await httpClient.PutAsync(uploadUrl, content);
-                    var uploadResult = await uploadResponse.Content.ReadAsStringAsync();
+                    await EnsureValidConnectionAsync(HttpStatusCode.OK);
 
-                    if (!uploadResponse.IsSuccessStatusCode)
+                    using var httpClient = new HttpClient();
+                    httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _graphAccessToken);
+
+                    var filePath = !string.IsNullOrEmpty(folderPath)
+                        ? $"{folderPath}/{fileName}".TrimStart('/')
+                        : fileName;
+
+                    var uploadUrl = $"https://graph.microsoft.com/v1.0/sites/{_siteId}/lists/{_libraryId}/drive/root:/{filePath}:/content";
+
+                    using (var content = new ByteArrayContent(fileContent))
                     {
-                        throw new Exception($"Failed to upload file. Status: {uploadResponse.StatusCode}, Response: {uploadResult}");
-                    }
-                }
+                        content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                        var uploadResponse = await httpClient.PutAsync(uploadUrl, content);
+                        var uploadResult = await uploadResponse.Content.ReadAsStringAsync();
 
-                _logger.LogInformation("Successfully uploaded file '{FileName}' to path '{FolderPath}'",
-                    fileName, folderPath);
+                        if (!uploadResponse.IsSuccessStatusCode)
+                        {
+                            
+                            if (uploadResponse.StatusCode == HttpStatusCode.Unauthorized)
+                            {
+                                _logger.LogInformation($"Reconnecting: attempts {numberOfRetries} / {maxRetries}");
+                                await EnsureValidConnectionAsync(uploadResponse.StatusCode);
+
+                            }
+                            else 
+                            {
+                                string message = $"Failed to upload file. Status: {uploadResponse.StatusCode}, Response: {uploadResult}"; ;
+                                if (uploadResponse.StatusCode == HttpStatusCode.TooManyRequests)
+                                {
+                                    message = $"Error uploading file '{fileName}', The request has been throttled";
+                                }
+                                else if (uploadResponse.StatusCode == HttpStatusCode.GatewayTimeout)
+                                {
+                                    message = $"Error uploading file '{fileName}', The request has been timed out";
+                                }
+                                else if (uploadResult.Contains("alreadyexist" , StringComparison.OrdinalIgnoreCase))
+                                {
+                                    message = "File Already Exists";
+                                }
+                                throw new Exception(message);
+                            }
+                            
+                            
+                        }
+                        else
+                        {
+                            success = true;
+                            _logger.LogInformation("Successfully uploaded file '{FileName}' to path '{FolderPath}'",
+                                fileName, folderPath);
+
+                        }
+                    }
+
+                }
             }
             catch (Exception ex)
             {
@@ -271,9 +301,9 @@ namespace DQT.Office365.SharePoint.Services
             }
         }
 
-        private async Task EnsureValidConnectionAsync()
+        private async Task EnsureValidConnectionAsync(HttpStatusCode statusCode)
         {
-            if (_context == null || string.IsNullOrEmpty(_siteId) || string.IsNullOrEmpty(_libraryId))
+            if (string.IsNullOrEmpty(_siteId) || string.IsNullOrEmpty(_libraryId) || statusCode == HttpStatusCode.Unauthorized)
             {
                 await ConnectAsync(_siteUrl, _libraryName, _username, _password, _clientId, _clientSecret, _tenantId);
             }
@@ -283,7 +313,7 @@ namespace DQT.Office365.SharePoint.Services
         {
             if (!_disposed)
             {
-                _context?.Dispose();
+                //_context?.Dispose();
                 _httpClient?.Dispose();
                 _disposed = true;
             }

@@ -30,7 +30,10 @@ namespace DQT.Extentions.Logging.File
     {
         public string LogDirectory { get; set; } = "Logs";
         public string FileNamePrefix { get; set; } = "app-";
-        public string TimestampFormat { get; set; } = "yyyy-MM-dd HH:mm:ss.fff zzz";
+        public string FileTimestampFormat { get; set; } = "yyyy-MM-dd HH:mm:ss.fff zzz";
+
+        public Guid CorrelationId = Guid.NewGuid();
+        public string ContentTimestampFormat { get; set; } = "yyyy-MM-dd HH:mm:ss.fff zzz";
         public LogLevel MinLogLevel { get; set; } = LogLevel.Information;
     }
 
@@ -65,11 +68,11 @@ namespace DQT.Extentions.Logging.File
             // Generate log file path with rotation
             string logFilePath = Path.Combine(
                 _options.LogDirectory,
-                $"{_options.FileNamePrefix}{DateTime.UtcNow:yyyyMMdd-HHmm}.log"
+                $"{_options.FileNamePrefix}{DateTime.UtcNow.ToString(_options.FileTimestampFormat)}.log"
             );
 
             // Format the log message with timestamp
-            string timestamp = DateTime.UtcNow.ToString(_options.TimestampFormat);
+            string timestamp = DateTime.UtcNow.ToString(_options.ContentTimestampFormat);
             string logLevel_str = logLevel.ToString().ToUpper();
             string message = formatter(state, exception);
 

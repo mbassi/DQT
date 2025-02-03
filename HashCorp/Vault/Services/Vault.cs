@@ -3,7 +3,7 @@ using DQT.HTTP;
 using Microsoft.Extensions.Logging;
 using DQT.HashCorp.Vault.Models;
 using DQT.Security.Cryptography.Services;
-using DQT.Utilities;
+using DQT.Enums;
 using System.Reflection;
 using System;
 using System.Net;

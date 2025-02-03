@@ -1,4 +1,4 @@
-﻿namespace DQT.Utilities
+﻿namespace DQT.Enums
 {
     public class AuthenticationException : Exception
     {
